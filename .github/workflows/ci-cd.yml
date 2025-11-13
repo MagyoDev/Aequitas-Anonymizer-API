@@ -45,9 +45,22 @@ jobs:
       - name: Validar build do FastAPI/Uvicorn
         run: |
           uvicorn app.main:app --host 127.0.0.1 --port 8000 &
-          sleep 5
-          curl --fail http://127.0.0.1:8000/docs
-          pkill uvicorn
+          
+          # tenta por até 30 segundos
+          for i in {1..30}; do
+            if curl -sf http://127.0.0.1:8000/docs > /dev/null; then
+              echo "API está no ar!"
+              pkill uvicorn
+              exit 0
+            fi
+            echo "Aguardando API subir ($i/30)..."
+            sleep 1
+          done
+          
+          echo "A API não subiu a tempo!"
+          pkill uvicorn || true
+          exit 1
+
 
   # ---------------------------------------------------------
   # JOB 2 — Deploy (opcional: Docker Hub)
