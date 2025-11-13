@@ -3,6 +3,7 @@ from typing import Optional, List, Dict, Any
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import os
 
 from . import config
 from . import services
@@ -71,9 +72,12 @@ def _ensure_fitted():
 @app.on_event("startup")
 def startup_event():
     """
-    Tenta carregar os dados e treinar automaticamente na inicialização.
-    Se não conseguir (ex.: arquivo não encontrado), apenas loga o erro.
+    Carrega dados e treina automaticamente, EXCETO quando estiver no CI.
     """
+    if os.getenv("CI") == "true":
+        print("[startup] Modo CI detectado — ignorando treinamento automático.")
+        return
+
     try:
         df = services.load_data(config.DATA_PATH)
         processed, numeric_cols, categorical_cols = services.preprocess(df)

@@ -43,10 +43,10 @@ jobs:
       #     pytest -q
 
       - name: Validar build do FastAPI/Uvicorn
+        env:
+          CI: "true"
         run: |
           uvicorn app.main:app --host 127.0.0.1 --port 8000 &
-          
-          # tenta por até 30 segundos
           for i in {1..30}; do
             if curl -sf http://127.0.0.1:8000/docs > /dev/null; then
               echo "API está no ar!"
@@ -56,10 +56,10 @@ jobs:
             echo "Aguardando API subir ($i/30)..."
             sleep 1
           done
-          
           echo "A API não subiu a tempo!"
           pkill uvicorn || true
           exit 1
+
 
 
   # ---------------------------------------------------------
