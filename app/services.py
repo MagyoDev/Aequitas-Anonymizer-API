@@ -152,12 +152,15 @@ def aggregate_clusters(
     agg_df = pd.DataFrame(rows).set_index("cluster_id")
     return agg_df
 
-
 def count_by_name(df: pd.DataFrame, name: str) -> int:
     """
     Conta quantas pessoas têm o nome informado.
     Pressupõe uma coluna 'nome' no dataset.
     """
-    if "nome" not in df.columns:
-        raise ValueError("Coluna 'nome' não encontrada no dataset.")
-    return int((df["nome"].astype(str).str.lower() == name.lower()).sum())
+    possible_cols = ["nome", "NOME", "Name", "NAME", "full_name", "FULL_NAME"]
+
+    for col in possible_cols:
+        if col in df.columns:
+            return int((df[col].astype(str).str.lower() == name.lower()).sum())
+
+    raise ValueError("Nenhuma coluna de nome foi encontrada no dataset.")
