@@ -1,9 +1,9 @@
+import os
 from typing import Optional, List, Dict, Any
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import os
 
 from . import config
 from . import services
@@ -13,9 +13,9 @@ app = FastAPI(
     title="Aequitas Anonymizer API",
     description=(
         "API para anonimização de dados pessoais via clusterização. "
-        "Retorna apenas resultados agregados (k-anonymity)."
+        "Retorna apenas resultados agregados, com k-anonymity e limites de consulta."
     ),
-    version="1.0.0",
+    version="2.0.0",
 )
 
 
@@ -27,10 +27,18 @@ class FitResponse(BaseModel):
     num_records: int
     num_clusters: int
     k_anonymity: int
+    max_results: int
 
 
 class NameStatsResponse(BaseModel):
     name: str
+    count: int
+    anonymized: bool
+    message: str
+
+
+class MultiStatsResponse(BaseModel):
+    filters: Dict[str, Any]
     count: int
     anonymized: bool
     message: str
@@ -67,6 +75,35 @@ def _ensure_fitted():
             status_code=503,
             detail="Modelo ainda não foi treinado. Chame o endpoint /fit primeiro.",
         )
+
+
+def apply_privacy_rules(count: int) -> Optional[Dict[str, Any]]:
+    """
+    Aplica regras de privacidade:
+    - count < K_ANONYMITY  -> bloqueia (risco de reidentificação)
+    - count > MAX_RESULTS  -> bloqueia (consulta ampla demais)
+    - caso contrário        -> permitido
+    """
+    if count == 0:
+        # quem chama decide a mensagem de 'nenhum registro'
+        return None
+
+    if count < config.K_ANONYMITY:
+        return {
+            "count": 0,
+            "anonymized": True,
+            "message": "Consulta bloqueada por privacidade (k-anonymity).",
+        }
+
+    if count > config.MAX_RESULTS:
+        return {
+            "count": 0,
+            "anonymized": True,
+            "message": "Consulta bloqueada por exceder o limite máximo permitido (mais de "
+                       f"{config.MAX_RESULTS} resultados).",
+        }
+
+    return None
 
 
 @app.on_event("startup")
@@ -121,6 +158,7 @@ def fit_model(body: FitRequest):
             num_records=len(df),
             num_clusters=n_clusters,
             k_anonymity=config.K_ANONYMITY,
+            max_results=config.MAX_RESULTS,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -130,7 +168,9 @@ def fit_model(body: FitRequest):
 def stats_by_name(nome: str):
     """
     Devolve uma resposta agregada do tipo:
-    "existem X pessoas com o nome Juan", respeitando k-anonymity.
+    "existem X pessoas com o nome Juan", respeitando:
+    - k-anonymity (mínimo 10)
+    - limite máximo de 4000 resultados
     """
     _ensure_fitted()
 
@@ -147,15 +187,13 @@ def stats_by_name(nome: str):
             message=f"Não há registros com o nome {nome}.",
         )
 
-    if count < config.K_ANONYMITY:
+    privacy = apply_privacy_rules(count)
+    if privacy:
         return NameStatsResponse(
             name=nome,
-            count=0,
-            anonymized=True,
-            message=(
-                "Os dados para esse nome existem, mas não podem ser exibidos "
-                "por questão de privacidade (k-anonymity)."
-            ),
+            count=privacy["count"],
+            anonymized=privacy["anonymized"],
+            message=privacy["message"],
         )
 
     return NameStatsResponse(
@@ -166,10 +204,68 @@ def stats_by_name(nome: str):
     )
 
 
+@app.get("/stats/multi", response_model=MultiStatsResponse)
+def stats_multi(
+    nome: Optional[str] = None,
+    idade: Optional[int] = None,
+    sexo: Optional[str] = None,
+    ocupacao: Optional[str] = None,
+    cidade: Optional[str] = None,
+):
+    """
+    Consulta cruzada com múltiplos atributos:
+    - nome (NOME)
+    - idade (IDADE)
+    - sexo (SEXO)
+    - ocupação (OCUPACAO)
+    - cidade (CIDADE, derivada de END_RESIDENCIAL)
+
+    Aplica:
+    - k-anonymity (mínimo 10)
+    - limite máximo de 4000 resultados
+    """
+    _ensure_fitted()
+
+    filters = {
+        "NOME": nome,
+        "IDADE": idade,
+        "SEXO": sexo,
+        "OCUPACAO": ocupacao,
+        "CIDADE": cidade,
+    }
+
+    count = services.count_by_filters(state.df, **filters)
+
+    if count == 0:
+        return MultiStatsResponse(
+            filters={k: v for k, v in filters.items() if v is not None},
+            count=0,
+            anonymized=True,
+            message="Nenhum registro encontrado para os filtros informados.",
+        )
+
+    privacy = apply_privacy_rules(count)
+    if privacy:
+        return MultiStatsResponse(
+            filters={k: v for k, v in filters.items() if v is not None},
+            count=privacy["count"],
+            anonymized=privacy["anonymized"],
+            message=privacy["message"],
+        )
+
+    return MultiStatsResponse(
+        filters={k: v for k, v in filters.items() if v is not None},
+        count=count,
+        anonymized=True,
+        message=f"Existem {count} pessoas que atendem a esses atributos.",
+    )
+
+
 @app.get("/clusters", response_model=List[ClusterSummary])
 def list_clusters():
     """
     Lista os clusters com seus tamanhos (apenas agregados).
+    Não retorna clusters menores que k-anonymity.
     """
     _ensure_fitted()
 

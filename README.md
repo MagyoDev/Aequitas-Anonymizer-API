@@ -1,108 +1,175 @@
 # Aequitas Anonymizer API
 
-Este projeto implementa uma API de anonimização de dados pessoais baseada em **clusterização** e **respostas agregadas**.
+A **Aequitas Anonymizer API** implementa um sistema completo de **anonimização de dados pessoais**, baseado em:
 
-Em vez de devolver dados individuais (linhas do dataset), a API:
-- agrupa registros semelhantes em **clusters**;
-- aplica uma política de **k-anonymity** (grupo mínimo de registros);
-- responde apenas com informações agregadas, como:
+* **Clusterização** de registros semelhantes
+* **Respostas agregadas** (nunca dados individuais)
+* **k-anonymity** (mínimo de 10 pessoas)
+* **Supressão automática de atributos sensíveis**
+* **Bloqueio de consultas muito pequenas (<10)**
+* **Bloqueio de consultas muito grandes (>4000)**
+* **Consultas cruzadas multi-atributo**
+* **Política de privacidade alinhada à LGPD**
 
-> "Existem 110 pessoas com o nome Juan."
+O objetivo é demonstrar como aplicar técnicas de Machine Learning e estatística para reduzir o risco de identificação de pessoas, entregando apenas **informações agregadas e privadas**.
 
-## Objetivo
+---
 
-Demonstrar na prática como aplicar técnicas de Machine Learning (especialmente clusterização) para:
-- reduzir o risco de identificação de indivíduos;
-- expor apenas estatísticas agregadas;
-- apoiar requisitos de privacidade e LGPD.
+# Objetivos do projeto
 
-## Tecnologias
+* Evitar reidentificação de indivíduos mesmo após **cruzamento de atributos**.
+* Demonstrar o uso de **k-anonymity** e limites estatísticos.
+* Aplicar clusterização para formar **grupos homogêneos** e sumarizar dados.
+* Expor apenas estatísticas seguras — nunca dados brutos.
+* Atender padrões de privacidade recomendados por órgãos como GDPR, LGPD, NIST e Google DP.
 
-- Python
-- FastAPI
-- Pandas
-- Scikit-learn
+---
 
-## Estrutura do projeto
+# Tecnologias utilizadas
+
+* **Python 3.11**
+* **FastAPI**
+* **Pandas**
+* **Scikit-Learn**
+* **Uvicorn**
+* **GitHub Actions (CI/CD)**
+* **Docker**
+
+---
+
+# Estrutura do projeto
 
 ```text
 anonymizer-ml-api/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py          # Endpoints da API
-│   ├── config.py        # Configurações, K-anonymity, caminho do CSV
+│   ├── main.py          # Endpoints e regras de privacidade
+│   ├── config.py        # Configurações, caminhos, k-anonymity, limites
 │   └── services.py      # Lógica de ML (pré-processamento, clusterização, agregação)
 ├── data/
-│   └── AequitasDB.csv   # Dataset com os dados pessoais (não versionar no Git se forem dados sensíveis)
+│   └── AequitasDB.csv   # Dataset (não versionar dados sensíveis)
 ├── requirements.txt
+├── Dockerfile           # Build da imagem da API
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yml    # Pipeline de CI/CD com safe startup
 ├── README.md
 └── .gitignore
 ```
 
-## Preparando o ambiente
+---
 
-1. Crie e ative um ambiente virtual:
+# Instalação e uso
 
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate  # Windows (PowerShell ou CMD)
-   # ou
-   source .venv/bin/activate  # Linux / Mac
-   ```
+## 1. Criando o ambiente virtual
 
-2. Instale as dependências:
+```bash
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+# ou
+source .venv/bin/activate  # Linux/Mac
+```
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 2. Instalando dependências
 
-3. Coloque o arquivo `AequitasDB.csv` dentro da pasta `data/`.
+```bash
+pip install -r requirements.txt
+```
 
-   - Ajuste o caminho em `app/config.py` se necessário.
-   - O projeto supõe que exista (por exemplo) uma coluna `nome` para o endpoint de estatísticas de nomes.
+## 3. Colocando os dados
 
-## Executando a API
+Coloque o arquivo:
 
-Dentro da pasta raiz do projeto (`anonymizer-ml-api`), execute:
+```
+data/AequitasDB.csv
+```
+
+O projeto extrai automaticamente:
+
+* apenas atributos permitidos
+* cria a coluna **CIDADE** extraída de `END_RESIDENCIAL`
+* remove todos os atributos sensíveis antes da clusterização
+
+---
+
+# Executando a API
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-A API ficará disponível em:
+Endpoints disponíveis em:
 
-- Documentação interativa (Swagger): http://127.0.0.1:8000/docs
-- Documentação alternativa (ReDoc): http://127.0.0.1:8000/redoc
+* Swagger → [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+* Redoc → [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
 
-## Endpoints principais
+---
 
-### 1. `POST /fit`
+# Política de Privacidade implementada
+
+A API aplica **três camadas de proteção**:
+
+### ✔ 1. k-Anonymity
+
+Nenhuma resposta é exibida se houver **menos de 10 registros**.
+
+### ✔ 2. Limite Máximo de Resultado
+
+Consultas que retornam **mais de 4000 registros** são bloqueadas.
+
+### ✔ 3. Supressão de Atributos Sensíveis
+
+Nunca usados em clusterização nem exibidos:
+
+* CPF
+* RG
+* CNH
+* PASSAPORTE
+* TELEFONE
+* ENDEREÇO completo
+* NOME nas features de clusterização
+
+### ✔ 4. Apenas estatísticas agregadas
+
+Nenhuma linha individual é retornada em nenhum endpoint.
+
+---
+
+# Endpoints principais
+
+---
+
+## 1. `POST /fit`
 
 Recarrega o CSV e re-treina o modelo de clusterização.
 
-Request (opcional):
+Request:
 
 ```json
-{
-  "n_clusters": 12
-}
+{ "n_clusters": 12 }
 ```
 
-Response (exemplo):
+Response:
 
 ```json
 {
-  "num_records": 1000,
+  "num_records": 100000,
   "num_clusters": 12,
-  "k_anonymity": 10
+  "k_anonymity": 10,
+  "max_results": 4000
 }
 ```
 
-### 2. `GET /stats/nome/{nome}`
+---
 
-Retorna uma resposta agregada para um nome específico, respeitando k-anonymity.
+## 2. `GET /stats/nome/{nome}`
 
-Exemplo de resposta:
+Retorna contagem agregada de pessoas com determinado nome, respeitando:
+
+* k-anonymity (<10 bloqueia)
+* limite máximo (>4000 bloqueia)
+
+Exemplo:
 
 ```json
 {
@@ -113,67 +180,155 @@ Exemplo de resposta:
 }
 ```
 
-Se a contagem for muito pequena (menor que `k_anonymity`):
+Se count < 10:
 
 ```json
 {
   "name": "Alan",
   "count": 0,
   "anonymized": true,
-  "message": "Os dados para esse nome existem, mas não podem ser exibidos por questão de privacidade (k-anonymity)."
+  "message": "Consulta bloqueada por privacidade (k-anonymity)."
 }
 ```
 
-### 3. `GET /clusters`
+---
 
-Lista os clusters disponíveis com seus tamanhos (apenas agregados, ocultando clusters menores que `k_anonymity`).
+## 3. `GET /stats/multi`
+
+Consulta cruzada multi-atributo:
+
+Parâmetros disponíveis:
+
+* `nome`
+* `idade`
+* `sexo`
+* `ocupacao`
+* `cidade` (extraída automaticamente)
+
+Exemplo:
+
+```
+/stats/multi?idade=45&sexo=F&ocupacao=Professora
+```
+
+Response:
+
+```json
+{
+  "filters": {
+    "idade": 45,
+    "sexo": "F",
+    "ocupacao": "Professora"
+  },
+  "count": 512,
+  "anonymized": true,
+  "message": "Existem 512 pessoas que atendem a esses atributos."
+}
+```
+
+Se count > 4000:
+
+```json
+{
+  "filters": {...},
+  "count": 0,
+  "anonymized": true,
+  "message": "Consulta bloqueada por exceder o limite máximo permitido (mais de 4000 resultados)."
+}
+```
+
+---
+
+## 4. `GET /clusters`
+
+Lista clusters com seus tamanhos, ocultando clusters < 10:
 
 ```json
 [
-  { "cluster_id": 0, "size": 210 },
-  { "cluster_id": 1, "size": 180 },
-  { "cluster_id": 2, "size": 95 }
+  { "cluster_id": 0, "size": 9341 },
+  { "cluster_id": 1, "size": 8812 }
 ]
 ```
 
-### 4. `GET /clusters/{cluster_id}`
+---
 
-Mostra detalhes agregados de um cluster:
+## 5. `GET /clusters/{cluster_id}`
 
-- tamanho
-- médias de colunas numéricas
-- categorias mais frequentes (moda) de colunas categóricas
-
-Exemplo:
+Retorna agregados de um cluster:
 
 ```json
 {
   "cluster_id": 0,
-  "size": 210,
+  "size": 9341,
   "numeric_means": {
-    "idade": 29.4,
-    "renda": 3200.7
+    "IDADE": 39.6
   },
   "categorical_modes": {
-    "cidade": "São Paulo",
-    "profissao": "Analista"
+    "SEXO": "F",
+    "OCUPACAO": "Analista de Marketing",
+    "CIDADE": "São Paulo"
   }
 }
 ```
 
-Se o cluster tiver menos registros que `k_anonymity`, o acesso é negado.
+Clustes menores que 10 → bloqueio automático.
 
-## Como isso garante anonimização
+---
 
-- Nenhuma chamada retorna uma linha individual do dataset.
-- Contagens pequenas são suprimidas (k-anonymity).
-- Os valores exibidos são sempre estatísticas agregadas.
-- A lógica pode ser estendida com técnicas adicionais (por exemplo, ruído diferencial).
+# Como a API garante anonimização
 
-## Possíveis extensões
+* Nunca retorna uma linha individual.
+* Remove todos os atributos sensíveis.
+* Aplica **k-anonymity** (mínimo 10).
+* Bloqueia consultas com **>4000** registros.
+* Responde com **médias e modas**, não valores individuais.
+* Clusterização reforça o agrupamento natural.
+* Cidade extraída reduz risco ao usar endereço completo.
+* CI/CD evita clusterização no ambiente de testes (rápido e seguro).
 
-- Uso de embeddings de texto para atributos como nome, profissão, etc.
-- Trocar KMeans por DBSCAN ou HDBSCAN.
-- Persistência dos modelos em disco.
-- Autenticação na API.
-- Auditoria de consultas para evitar ataques de reconstrução.
+---
+
+# Segurança, LGPD e riscos mitigados
+
+Esta API reduz riscos de:
+
+* Reidentificação por cruzamento de dados.
+* Inferência reversa de atributos sensíveis.
+* Ataques de linkagem.
+* Engenharia reversa de perfis individuais.
+* Ataques de reconstrução do dataset.
+
+Cumpre princípios de:
+
+* LGPD — anonimização, minimização e finalidade
+* GDPR — data minimization, purpose limitation
+* NIST — k-anonymity, suppression
+* Google DP — result-size limits
+
+---
+
+# CI/CD
+
+Inclui:
+
+* Workflow GitHub Actions completo
+* Modo CI com clusterização desativada
+* Teste automatizado do servidor
+* Lint (flake8)
+* Build e push Docker (se configurado)
+
+---
+
+# Executando via Docker
+
+Build:
+
+```bash
+docker build -t aequitas-anonymizer .
+```
+
+Run:
+
+```bash
+docker run -p 8000:8000 aequitas-anonymizer
+```
